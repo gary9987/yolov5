@@ -21,6 +21,7 @@ import time
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
+import json
 
 import numpy as np
 import torch
@@ -70,6 +71,9 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
     save_dir, epochs, batch_size, weights, single_cls, evolve, data, cfg, resume, noval, nosave, workers, freeze = \
         Path(opt.save_dir), opt.epochs, opt.batch_size, opt.weights, opt.single_cls, opt.evolve, opt.data, opt.cfg, \
         opt.resume, opt.noval, opt.nosave, opt.workers, opt.freeze
+    callbacks.run('on_pretrain_routine_start')
+
+    record_dic = {'metrics': []}
 
     # Directories
     w = save_dir / 'weights'  # weights dir
@@ -353,6 +357,8 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
                 pbar.set_description(('%10s' * 2 + '%10.4g' * 5) % (
                     f'{epoch}/{epochs - 1}', mem, *mloss, targets.shape[0], imgs.shape[-1]))
                 callbacks.run('on_train_batch_end', ni, model, imgs, targets, paths, plots, opt.sync_bn)
+                LOGGER.info("\ntrain_box={}; train_obj={}; train_cls={};\n".format(str(float(mloss[0])), str(float(mloss[1])), str(float(mloss[2]))))
+                record_dic['metrics'].append({'box': float(mloss[0]), 'obj': float(mloss[1]), 'cls': float(mloss[2]), 'phase': 'train'})
                 if callbacks.stop_training:
                     return
             # end batch ------------------------------------------------------------------------------------------------
@@ -377,6 +383,8 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
                                            plots=False,
                                            callbacks=callbacks,
                                            compute_loss=compute_loss)
+                LOGGER.info(f"\nval_box={str(results[4])}; val_obj={str(results[5])}; val_cls={str(results[6])};\n")
+                record_dic['metrics'].append({'box': results[4], 'obj': results[5], 'cls': results[6], 'phase': 'val'})
 
             # Update best mAP
             fi = fitness(np.array(results).reshape(1, -1))  # weighted combination of [P, R, mAP@.5, mAP@.5-.95]
@@ -448,6 +456,8 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
         LOGGER.info(f"Results saved to {colorstr('bold', save_dir)}")
 
     torch.cuda.empty_cache()
+    with open('/opt/ml/model/metrics.json', 'w') as f:
+        json.dump(record_dic, f)
     return results
 
 
